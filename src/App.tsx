@@ -1,0 +1,320 @@
+// App.tsx
+import React, { useEffect, useState } from "react";
+import { DndProvider, useDrag, useDrop } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
+
+// Define the types for the items
+enum ItemTypes {
+  PARENT = "parent",
+  CHILD = "child",
+}
+
+// Define the type for a child item
+interface ChildItem {
+  id: number;
+  text: string;
+}
+
+// Define the type for a parent item
+interface ParentItem {
+  id: number;
+  children: ChildItem[];
+}
+
+// Define the type for the drag item
+interface DragItem {
+  id: number;
+  index: number;
+  parentId?: number;
+  type: ItemTypes;
+}
+
+// Props for the Child component
+interface ChildProps {
+  id: number;
+  text: string;
+  index: number;
+  moveChild: (
+    fromIndex: number,
+    toIndex: number,
+    fromParentId: number,
+    toParentId: number
+  ) => void;
+  parentId: number;
+  parents: ParentItem[];
+  moveParentToChild: (fromParentId: number, toParentId: number) => void;
+  moveChildToParent: (fromParentId: number, childIndex: number) => void;
+}
+
+// Props for the Parent component
+interface ParentProps {
+  id: number;
+  children: ChildItem[];
+  index: number;
+  moveParent: (fromIndex: number, toIndex: number) => void;
+  moveChild: (
+    fromIndex: number,
+    toIndex: number,
+    fromParentId: number,
+    toParentId: number
+  ) => void;
+  parents: ParentItem[];
+  moveParentToChild: (fromParentId: number, toParentId: number) => void;
+  moveChildToParent: (fromParentId: number, childIndex: number) => void;
+}
+
+// Child component
+const Child: React.FC<ChildProps> = ({
+  id,
+  text,
+  index,
+  moveChild,
+  parentId,
+  parents,
+  moveParentToChild,
+  moveChildToParent,
+}) => {
+  const [{ isDragging }, drag, preview] = useDrag({
+    type: ItemTypes.CHILD,
+    item: () => ({ id, index, parentId, type: ItemTypes.CHILD }),
+    collect: (monitor: { isDragging: () => any }) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  });
+
+  const [, drop] = useDrop({
+    accept: [ItemTypes.CHILD, ItemTypes.PARENT],
+    drop: (item: DragItem) => {
+      if (item.type === ItemTypes.CHILD && item.id !== id) {
+        moveChild(item.index, index, item.parentId!, parentId);
+      }
+      if (item.type === ItemTypes.PARENT && item.id !== id) {
+        const element = parents.filter((v) => v.id === item.id);
+        if (element[0].children.length === 0) {
+          moveParentToChild(item.id, parentId);
+        }
+      }
+    },
+  });
+
+  return (
+    <div
+      ref={(node) => drag(drop(node))}
+      style={{
+        padding: "8px",
+        margin: "4px",
+        border: "1px solid black",
+        opacity: isDragging ? 0.5 : 1,
+        backgroundColor: isDragging ? "lightyellow" : "white",
+      }}
+    >
+      <button
+        title="Move this child as a new parent"
+        style={{ marginRight: "8px" }}
+        onClick={() => moveChildToParent(parentId, index)}
+      >
+        ↑
+      </button>
+      {text}
+    </div>
+  );
+};
+
+// Parent component
+const Parent: React.FC<ParentProps> = ({
+  id,
+  children,
+  index,
+  moveParent,
+  moveChild,
+  parents,
+  moveParentToChild,
+  moveChildToParent,
+}) => {
+  const [{ isDragging }, drag] = useDrag({
+    type: ItemTypes.PARENT,
+    item: { id, index, type: ItemTypes.PARENT },
+    collect: (monitor: { isDragging: () => any }) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  });
+
+  const [, drop] = useDrop({
+    accept: [ItemTypes.PARENT, ItemTypes.CHILD],
+    drop: (
+      item: DragItem,
+      monitor: { getClientOffset: () => any; getSourceClientOffset: () => any }
+    ) => {
+      const delta = monitor.getClientOffset();
+      const parentRect = monitor.getSourceClientOffset();
+      const dropIndex = calculateDropIndex(delta, parentRect);
+      if (item.type === ItemTypes.PARENT && item.id !== id) {
+        moveParent(item.index, index);
+      } else if (item.type === ItemTypes.CHILD) {
+        moveChild(item.index, dropIndex, item.parentId!, id);
+      }
+    },
+  });
+
+  return (
+    <div
+      ref={(node) => drag(drop(node))}
+      style={{
+        padding: "16px",
+        margin: "8px",
+        border: "2px solid blue",
+        opacity: isDragging ? 0.7 : 1,
+        backgroundColor: isDragging ? "lightblue" : "white",
+      }}
+    >
+      <h3>Parent {id}</h3>
+      {children.length > 0
+        ? children.map((child, idx) => (
+            <Child
+              key={child.id}
+              id={child.id}
+              text={child.text}
+              index={idx}
+              moveChild={moveChild}
+              parentId={id}
+              parents={parents}
+              moveParentToChild={moveParentToChild}
+              moveChildToParent={moveChildToParent}
+            />
+          ))
+        : ""}
+    </div>
+  );
+};
+
+// Function to calculate the drop index based on the drop position
+const calculateDropIndex = (
+  clientOffset: { x: number; y: number },
+  parentRect: { x: number; y: number }
+) => {
+  const childHeight = 30;
+  const offsetY = clientOffset.y - parentRect.y;
+  return Math.floor(offsetY / childHeight);
+};
+
+// App component
+const App: React.FC = () => {
+  // Initial state with parent items
+  const [parents, setParents] = useState<ParentItem[]>([
+    {
+      id: 1,
+      children: [
+        { id: 2, text: "Child 1" },
+        { id: 3, text: "Child 2" },
+      ],
+    },
+    {
+      id: 4,
+      children: [
+        { id: 5, text: "Child 3" },
+        { id: 6, text: "Child 4" },
+      ],
+    },
+    {
+      id: 7,
+      children: [], // Parent with no children
+    },
+  ]);
+
+  const moveParent = (fromIndex: number, toIndex: number) => {
+    const newParents = [...parents];
+    const [movedParent] = newParents.splice(fromIndex, 1);
+    newParents.splice(toIndex, 0, movedParent);
+    setParents(newParents);
+  };
+
+  const moveChild = (
+    fromIndex: number,
+    toIndex: number,
+    fromParentId: number,
+    toParentId: number
+  ) => {
+    let newParents = [...parents];
+    const fromParent = newParents.find((parent) => parent.id === fromParentId);
+    const toParent = newParents.find((parent) => parent.id === toParentId);
+
+    if (!fromParent || !toParent) {
+      console.error("Parent not found");
+      return;
+    }
+
+    if (fromIndex < 0 || fromIndex >= fromParent.children.length) {
+      console.error("Invalid fromIndex");
+      return;
+    }
+
+    // Remove the child from its original parent.
+    const [movedChild] = fromParent.children.splice(fromIndex, 1);
+
+    // For regular parents, insert the child at the target index.
+    toParent.children.splice(toIndex, 0, movedChild);
+
+    setParents(newParents);
+  };
+
+  const moveParentToChild = (fromParentId: number, toParentId: number) => {
+    const newParents = [...parents];
+    const fromParentIndex = newParents.findIndex(
+      (parent) => parent.id === fromParentId
+    );
+    if (fromParentIndex === -1) return;
+
+    // Remove the parent from the parents array.
+    const [movedParent] = newParents.splice(fromParentIndex, 1);
+
+    // Convert the parent to a child item.
+    // (Note: Adjust this conversion as needed; here we assign a text value for illustration)
+    const childItem: ChildItem = {
+      id: movedParent.id,
+      text: "child",
+    };
+
+    const toParent = newParents.find((parent) => parent.id === toParentId);
+    if (!toParent) return;
+    // For regular parents, simply append the new child.
+    toParent.children = [...toParent.children, childItem];
+
+    setParents(newParents);
+  };
+
+  const moveChildToParent = (fromParentId: number, childIndex: number) => {
+    let newParents = [...parents];
+    const index = newParents.findIndex(
+      (element) => element.id === fromParentId
+    );
+    const parent = newParents[index];
+    const childItem = parent.children[childIndex];
+    // Remove the child item in place
+    parent.children.splice(childIndex, 1);
+    newParents.splice(index, 0, { id: childItem.id, children: [] });
+    setParents(newParents);
+  };
+
+  return (
+    <DndProvider backend={HTML5Backend}>
+      <div>
+        {/* Render only non-temporary parents or include temporary ones if enabled */}
+        {parents.map((parent, index) => (
+          <Parent
+            key={parent.id}
+            id={parent.id}
+            children={parent.children}
+            index={index}
+            moveParent={moveParent}
+            moveChild={moveChild}
+            parents={parents}
+            moveParentToChild={moveParentToChild}
+            moveChildToParent={moveChildToParent}
+          />
+        ))}
+      </div>
+    </DndProvider>
+  );
+};
+
+export default App;
